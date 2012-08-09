@@ -1,0 +1,108 @@
+%{	
+#include "process_input.h"
+#include "toHTML.h"
+List *wikiList;
+Wiki_Entry *page;
+
+%}
+
+%x	PAGE
+%x	TITLE
+%x	REVISION
+%x	LAST_REV
+%x	AUTHOR
+%x 	SECTION
+%x	LINKSEXT
+%x	LINKSINT
+
+%%
+
+\<page\> {
+	page = initEntry(); 
+	BEGIN(PAGE);
+}
+
+<PAGE>{
+	\<title\> {BEGIN(TITLE);}
+	\<revision\> {BEGIN(REVISION);}
+	\<\/page\> {wikiList = insertTail(wikiList,page);page = initEntry();BEGIN(INITIAL);}
+}
+
+<TITLE>{
+	[^<]+ {page = insertTitle(page,yytext);}
+	\<\/title\> {BEGIN(PAGE);}
+}
+
+<REVISION>{
+	\<timestamp\> {BEGIN(LAST_REV);}
+	\<username\> {BEGIN(AUTHOR);}
+	\<\/revision\> {BEGIN(PAGE);}
+	^[=]{2} {BEGIN(SECTION);}
+	^\*.+http:\/\/ {BEGIN(LINKSEXT);}
+	\[\[ {BEGIN(LINKSINT);}
+}
+
+<LAST_REV>{
+	[^<]+ {page = insertRevisionDate(page,yytext);}
+	\<\/timestamp\> {BEGIN(REVISION);}
+}
+
+<AUTHOR>{
+	[^<]+ {page = insertAuthor(page,yytext);}
+	\<\/username\> {BEGIN(REVISION);}
+}
+
+<SECTION>{
+	[^=]+ {page = insertSection(page,yytext+1);}
+	[=]+ {BEGIN(REVISION);}
+}
+
+<LINKSEXT>{
+	[^\|]+ {page = insertExternLink(page,yytext);}
+	.|\n\t\r {BEGIN(REVISION);}
+}
+
+<LINKSINT>{
+	[^\]:\.]+/\|  {page = insertInternLink(page,yytext);}
+	[^\]:\.\|]+/\]\] {page = insertInternLink(page,yytext);}
+	.|\n\t\r {BEGIN(REVISION);}
+}
+
+<<EOF>> {return 0;}
+
+%%
+
+int main (int argc, char **argv) {
+		
+	if(argc < 2) {
+		perror("Insuficient arguments");
+		return -1;
+	}
+
+	int s = strlen(argv[1]);
+
+	if(argv[1][s-1] != 'l' && 
+		argv[1][s-2] != 'm' && 
+			argv[1][s-3] != 'x') {
+			perror("Unsuported format");
+			return -1;
+			}
+
+	wikiList = init(sizeof(Wiki_Entry),NULL);
+
+	yyin = fopen(argv[1],"r");
+
+	if(!yyin) {
+		perror("");
+		return -1;
+	}
+
+	yylex();
+	
+
+	generateHTML(wikiList,argv[2]);
+	destroyEntryList(wikiList);
+	return 0;
+}
+
+
